@@ -16,7 +16,7 @@ echo ". ~/COE/profile.sh" >> $HOME/.bash_profile
 . ~/.bash_profile
 ```
 
-# (optional) Installing git and rlwrap
+### (optional) Installing git and rlwrap
 ```
 # Install rlwrap (used extensively, although optional)
 sudo yum install rlwrap
@@ -31,7 +31,7 @@ sudo yum install git
 Depending on your VM version, you might encounter problems installing rlwrap. Please let me know if you find a one-command-fits all.
 
 
-### Some examples:
+## Some examples of the environment:
 ```
 # [ oracle@ludodb01:/home/oracle/COE [21:28:15] [18.4.0.0.0 [DBMS EE] SID=CDB] 130 ] #
 # u
