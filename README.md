@@ -1,20 +1,8 @@
 # COE
 Common Oracle Environment for Linux
 
-### Installation instructions for the Oracle Cloud Infrastructure (Oracle Linux 6)
+### Installation instructions for the Oracle Cloud Infrastructure
 ```
-# Install rlwrap (used extensively, although optional)
-sudo yum install rlwrap
-
-# Enable the Public Yum repository (optional, for git install)
-cd /etc/yum.repos.d
-sudo wget http://yum.oracle.com/public-yum-ol6.repo
-
-# Install git (needed just to download the repo, you might want to find another way to copy it)
-sudo yum install git
-
-
-
 # Connect as oracle
 sudo su - oracle
 
@@ -27,6 +15,21 @@ echo ". ~/COE/profile.sh" >> $HOME/.bash_profile
 # Load the new profile
 . ~/.bash_profile
 ```
+
+# (optional) Installing git and rlwrap
+```
+# Install rlwrap (used extensively, although optional)
+sudo yum install rlwrap
+
+# Enable the Public Yum repository (optional, for git install)
+cd /etc/yum.repos.d
+sudo wget http://yum.oracle.com/public-yum-ol6.repo
+
+# Install git (needed just to download the repo, you might want to find another way to copy it)
+sudo yum install git
+```
+Depending on your VM version, you might encounter problems installing rlwrap. Please let me know if you find a one-command-fits all.
+
 
 ### Some examples:
 ```
