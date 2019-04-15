@@ -1,0 +1,137 @@
+#!/bin/bash -l
+################################################
+# File      : skel
+# Author    : Ludovico Caldara
+# Version   : 0.1
+# Purpose   : Base script to use as a base for new scripts
+#	     It contains basic information about how to use the common script environment.
+#
+
+########################
+# Environment Variables
+# LOCAL_PARSE_OPTIONS : may be empty or undefined, but if the script accepts any parameters, they must be set
+#		       using the getopts command. Base parameters are common for every script.
+#		       Refer to init_script.conf or the F_common_usage function
+# e.g.:
+# LOCAL_PARSE_OPTIONS="a:"
+
+# MUSTBE  : If this variable is set, the script checks if the user executing the script matches to the
+#	   value of this variable. If it does not match, an error is raised and the script exits 1.
+# e.g.:
+# MUSTBE=oracle
+
+# MUSTBEON  : If this variable is set, the script checks if the current host matches the
+#	   value of this variable. If it does not match, an error is raised and the script exits 1.
+# e.g.:
+# MUSTBEON=oracle-rundeck
+
+# JOBUSER: if set to required, the Init script will fail if the parameters do not contain the -u with the username
+#	  or if the user cannot be infered from `who am i`
+# e.g.:
+# JOBUSER=required
+
+
+#######################
+# Cleanup: If any function named Cleanup is defined, it will automatically be executed
+# with the trap EXIT command.
+Cleanup () {
+	if [ $? -eq 0 ] ; then
+		# exit 0 trapped
+		# update the status in a log, table, etc. to
+		# report success
+		true
+	else
+		# exit !0 trapped
+		# update the status in a log, table, etc. to
+		# report the error
+		false
+	fi
+	# remove pipes, temporary files etc
+}
+
+
+#######################
+# Usage: If Usage is defined before running init_script.conf, the option -h will automatically show it
+# moreover, it will append the common options at the end. So please define it as:
+Usage () {
+	cat <<EOF
+	Usage: `basename $0` ..your options here..  [{Common Options}]
+EOF
+}
+# as common options are always valid when including the init_script.sh
+# When you need to print the usage inside the script, please do it with two lines so common options also appear:
+#       Usage
+#       F_common_usage
+
+#######################
+# Init_Env.sh is the common function library, it must be called in every script
+# after the previous variables/functions are declared
+COE_ETC=$HOME/COE
+. $COE_ETC/init_script.conf
+
+######################
+# if the script accepts any arguments, they must be defined in the LOCAL_PARSE_OPTIONS variable in getopts format (see above).
+# That variable must be set before running the Init_Env.sh script.
+# A loop like this should threat all the parameters execpt the common ones defined in G_PARSE_OPTIONS.
+while getopts ":${LOCAL_PARSE_OPTIONS}${G_PARSE_OPTIONS}" opt ; do
+	case $opt in
+		a)
+			edebug "Got parameter -a. Its value is $OPTARG"
+			;;
+		\?)
+			eerror "Invalid option: -$OPTARG"
+			exit 1
+			;;
+		:)
+			eerror "Option -$OPTARG requires an argument."
+			exit 1
+			;;
+	esac
+done
+
+####################
+# F_check_pgenv_set checks the existence of the postgreSQL cluster environment variables.
+# it returns 0 or 1. If the variables are mandatory, you can add F_check_exit right after
+# the invocation of the function so the script will exit.
+F_check_env_set
+F_check_exit $? "Environment check"
+
+####################
+# the variable Job is set by default to the script basename. This variable is used to build the logfile name (and more).
+# Should you identify this job with additional informaiton (e.g. current environment), you can change it here.
+Job=${Job}_whatever_you_need
+
+###################
+# F_Open_Pipeout redirects all the output to a file and then tee to the standard output during the execution,
+# unless the option -Z is specified (-Z means no file logging).
+# This redirection may prevent the script to accept interactive output.
+# In that case, avoid using it or use the -Z parameter when running the script.
+F_Open_Pipeout
+
+##################
+# predefined functions allows to use different verbosity levels with coloured output.
+# The logfile will contain special "color characters" that may be seen with "less -r"
+ewarn "this is a warning message"
+eerror "this is an error message"
+einfo "this is an information"
+eok "this will report a SUCCESSful operation."
+edebug "this is a debug message"
+ecrit "this is a critical message"
+enotify "this is normal output"
+esilent "this will show up even in silent mode."
+
+##################
+# all the commands can be followed by these functions: `F_check_exit $? "operation"` and `F_check_warn $? "operation"`
+# Both check the first parameter (if 0 then ok, else not ok) but
+# F_check_exit will exit with an error
+# F_check_warn will prompt a warning and will continue
+# E.G.:
+#       do_something
+#       F_check_exit $? "something"
+# in case of error, it will report "ERROR - something has failed with exit code 1" and the script will stop.
+
+#################
+# The last step is to close the Pipe.
+F_Close_Pipeout
+
+exit 0
