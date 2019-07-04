@@ -18,6 +18,8 @@ echo ". ~/COE/profile.sh" >> $HOME/.bash_profile
 
 ### (optional) Installing git and rlwrap
 ```
+# RH6 EPEL repo (RH6 is the current VM provided as DBaaS in Oracle Cloud)
+sudo yum install yum install https://dl.fedoraproject.org/pub/epel/epel-release-latest-6.noarch.rpm
 # Install rlwrap (used extensively, although optional)
 sudo yum install rlwrap
 
