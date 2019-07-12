@@ -18,17 +18,19 @@ echo ". ~/COE/profile.sh" >> $HOME/.bash_profile
 
 ### (optional) Installing git and rlwrap
 ```
-# RH6 EPEL repo (RH6 is the current VM provided as DBaaS in Oracle Cloud)
+#### IF USING RH6/OL6 (OL6 is the old VM provided as DBaaS in Oracle Cloud)
+# install EPEL repo for rlwrap 
 sudo yum install yum install https://dl.fedoraproject.org/pub/epel/epel-release-latest-6.noarch.rpm
-# Install rlwrap (used extensively, although optional)
-sudo yum install rlwrap
-
-# Enable the Public Yum repository (optional, for git install)
+# Enable the Public Yum repository for git install)
 cd /etc/yum.repos.d
 sudo wget http://yum.oracle.com/public-yum-ol6.repo
 
-# Install git (needed just to download the repo, you might want to find another way to copy it)
-sudo yum install git
+#### IF USING RH7/OL7
+# for OL7, enable the [ol7_developer_EPEL] repo in /etc/yum.repos.d/public-yum-ol7.repo
+# Compute instances in 7.6 are already OK, you might need to add it for DBaaS servers
+
+sudo yum install -y rlwrap git
+
 ```
 Depending on your VM version, you might encounter problems installing rlwrap. Please let me know if you find a one-command-fits all.
 
