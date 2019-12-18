@@ -28,6 +28,16 @@ sudo wget http://yum.oracle.com/public-yum-ol6.repo
 #### IF USING RH7/OL7
 # for OL7, enable the [ol7_developer_EPEL] repo in /etc/yum.repos.d/public-yum-ol7.repo
 # Compute instances in 7.6 are already OK, you might need to add it for DBaaS servers
+# If missing, this should work:
+cat > /etc/yum.repos.d/ol7.epel.repo <<EOF
+[ol7_epel]
+name=Oracle Linux $releasever Latest ($basearch)
+baseurl=https://yum.oracle.com/repo/OracleLinux/OL7/developer_EPEL/\$basearch/
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-oracle
+gpgcheck=1
+enabled=1
+EOF
+
 
 sudo yum install -y rlwrap git
 
