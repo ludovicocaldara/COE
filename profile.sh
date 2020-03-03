@@ -1,6 +1,6 @@
 ###########################
 #
-# CERN Oracle Environment
+# Common Oracle Environment
 #
 ###########################
 
