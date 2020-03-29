@@ -1,0 +1,750 @@
+#!/bin/bash
+
+# README
+# * How to setup ohctl for virtualbox?
+# Mount a volume in /media/sw/images from your VirtualBox host where the golden iages are stored.
+# Download the Oacle binaries 19c or later in that folder and rename the zip file to something meaningful (e.g. db_19_3_0.zip)
+# The Home name AND the directory name will match the name of the zip file.
+
+G_Image_Path=/media/sw/images
+G_Work_Dir=/u01/app/oracle/stage/work_dir
+G_DB_Install_Base=/u01/app/oracle/product
+G_Grid_Install_Base=/u01/app/grid
+
+F_usage() {
+	cat <<EOF
+
+	Purpose : Management of Golden Images (Oracle Homes) for Virtualbox machines
+
+	Usage   : To list the available images:
+		    $0 -l
+		  To install an image on the localhost:
+		    $0 -i goldenimage [-n newname] [-r|-S]
+		  To create an image based on the current OH:
+		    $0 -c [-n newname] [ -f ] [-m message]
+
+	Options : -l		    List the available Oracle Homes in the golden image repository
+		  -i goldenimage	Installs locally the specified golden image. (If already deployed, an error is thrown)
+					if the option -l is given, the list action has the priority over the deploy.
+					If no newname is set, the Home is put in read-only
+		  -n newname	    Specify a new name for the Oracle Home: use it in case you need to patch
+					and create a new Golden Image from it or if you want to change the Golden Image name
+					for the current Oracle Home you are converting to Image.
+					When creating a new Image (-c), it takes the basename of the OH by default, and not the
+					OHname inside the inventory.
+					If the newname is specified upon an install, the Oracle Home is not set read-only as it is supposed
+					to be changed from its original version.
+		  -c		    Creates a new Golden Image from the current Oracle Home.
+		  -f		    If the Golden Image to be created exists, force the overwrite.
+		  -r		    Link with RAC option (install only). By default, it links with RAC only if a cluster install is detected.
+		  -S		    Do not link with RAC option (install only). By default, it links with RAC only if a cluster install is detected.
+		  -m		    Optional message (enclosed by quotes, max 2000 chars) to describe why the home is being created
+		  -g		    GRID. Does the same operations (Install, Create, List), but for Grid Infrastructure.
+					Please Note: The install action just unzips and registers the home in the inventory, but DOES NOT CONFIGURE it.
+					It does not affect the active Grid Infrastructure install. Please refer to the gitbook.
+
+	Example : $0 -i db_18_3_0_COE1 -n db_18_3_0_COE2
+					installs the Oracle Home db_18_3_0_COE1 with new name db_18_3_0_COE2
+					in order to apply a one-off on it (or make other changes)
+
+		  $0 -i db_18_3_0_COE2
+					installs the Oracle Home db_18_3_0_COE2 for normal usage
+
+		  $0 -c -n db_18_3_1_COE1
+					Creates a new Golden Image named db_18_3_1_COE1 from the current ORACLE_HOME
+
+		  $0 -c -f
+					Creates a new Golden Image with the name of the current OH basename, overwriting
+					the eventual current image.
+					E.g. if the current OH is /ORA/dbs01/oracle/product/db_18_3_0_COE3, the new GI name
+					 will be "db_18_3_0_COE3"
+
+EOF
+}
+
+function F_colordef () {
+	#######################################
+	colblk='\e[0;30m' # Black - Regular
+	colred='\e[0;31m' # Red
+	colgrn='\e[0;32m' # Green
+	colrst='\e[0m'    # Text Reset
+}
+
+F_list_OH () {
+
+
+	# we get the list of Oracle Homes with a REST call to ORDS because we are not sure that there are any sqlplus clients available...
+	F_colordef
+	echo
+	echo "Listing existing golden images:"
+	echo
+	printf "%-35s %-18s %-60s\n" "OH_Name" "Installed locally?" "Description"
+	echo "----------------------------------- ------------------ ------------------------------------------------------------"
+
+	OLFIFS=$IFS
+	IFS='
+'
+	for line in `ls -1 $G_Image_Path/*.zip` ; do
+		L_GI_Name=$(basename $line .zip)
+		if [ -f $G_Image_Path/${L_GI_Name}.meta ] ; then
+			. $G_Image_Path/${L_GI_Name}.meta
+		fi
+		L_Installed=`F_OH_Installed "$L_GI_Name"`
+		printf "%-35s %-10s %-10s %-18s %-7s %-60s\n" "$L_GI_Name" "$L_Installed" "$L_GI_Description"
+	done
+	IFS=$OLDIFS
+}
+
+F_OH_Installed () {
+	CENTRAL_ORAINV=`grep ^inventory_loc /etc/oraInst.loc 2>/dev/null | awk -F= '{print $2}'`
+	grep "<HOME NAME=\"$1\"" $CENTRAL_ORAINV/ContentsXML/inventory.xml 2>/dev/null| grep -v "REMOVED=\"T\"" >/dev/null 
+	if [ $? -eq 0 ] ; then
+		echo -e "${colgrn}Installed         ${colrst}"
+	else
+		echo -e "${colred}Not installed     ${colrst}"
+	fi
+}
+
+F_OH_Install_Check () {
+	CENTRAL_ORAINV=`grep ^inventory_loc /etc/oraInst.loc 2>/dev/null | awk -F= '{print $2}'`
+	grep "<HOME NAME=\"$1\"" $CENTRAL_ORAINV/ContentsXML/inventory.xml 2>/dev/null| grep -v "REMOVED=\"T\"" >/dev/null 
+	if [ $? -eq 0 ] ; then
+		echo "Installed"
+	else
+		echo "Not installed"
+	fi
+}
+
+F_OH_Component () {
+	comp_file=$ORACLE_HOME/inventory/ContentsXML/comps.xml
+	comp_xml=`grep "COMP NAME" $comp_file | head -1`;
+	comp_name=`echo $comp_xml | tr ' ' '\n' | grep ^NAME= | awk -F\" '{print $2}'`;
+	echo $comp_name
+}
+
+function F_OH_Version() {
+	L_OH=${1:-$ORACLE_HOME}
+	if [ $L_OH ] && [ -d $L_OH ] ; then
+
+		comp_file=$L_OH/inventory/ContentsXML/comps.xml
+		comp_xml=`grep "COMP NAME" $comp_file | head -1`
+
+		comp_name=`echo $comp_xml | tr ' ' '\n' | grep ^NAME= | awk -F\" '{print $2}'`
+		comp_vers=`echo $comp_xml | tr ' ' '\n' | grep ^VER= | awk -F\" '{print $2}'`
+		case $comp_name in
+			"oracle.crs")
+				L_ORAVERSION=$comp_vers
+				[[ -x $L_OH/bin/oraversion ]] &&	L_ORAVERSION=`$L_OH/bin/oraversion -compositeVersion`
+				;;
+			"oracle.sysman.top.agent"| "oracle.sysman.emagent.installer")
+				L_ORAVERSION=$comp_vers
+				;;
+			"oracle.server")
+				L_ORAVERSION=`grep "PATCH NAME=\"oracle.server\"" $comp_file 2>/dev/null | tr ' ' '\n' | grep ^VER= | awk -F\" '{print $2}'`;
+				if [ -z "$L_ORAVERSION" ]; then
+					L_ORAVERSION=$comp_vers
+				fi
+				[[ -x $L_OH/bin/oraversion ]] &&	L_ORAVERSION=`$L_OH/bin/oraversion -compositeVersion`
+			;;
+			"oracle.client")
+				L_ORAVERSION=$comp_vers
+				[[ -x $L_OH/bin/oraversion ]] &&	L_ORAVERSION=`$L_OH/bin/oraversion -compositeVersion`
+				;;
+		esac
+		echo $L_ORAVERSION
+	else
+		echo "Cannot retreieve version"
+		false
+	fi
+}
+
+F_Image_Exists () {
+	# we check the list of Oracle Homes with a REST call to ORDS because we are not sure that there are any sqlplus clients available (yet)...
+	# the final grep returns 1 in case there are no rows... handful for the caller :-)
+	L_search=$1
+	if [ -f $G_Image_Path/${L_search}.zip ] && [ -f $G_Image_Path/${L_search}.meta ] ; then
+		echo $G_Image_Path/${L_search}.meta
+	else
+		false
+	fi
+}
+
+# charge variables and functions from the profile
+. ~/.bash_profile
+
+
+L_Link_RAC=notset
+L_For_Grid="N"
+
+while getopts "hli:n:cd:frSm:g" OPTION ; do
+	case "${OPTION}" in
+		l)      L_Action=list
+			;;
+		i)      L_Golden_Image=${OPTARG}
+			L_Action=${L_Action:-install}
+			if [[ "$L_Golden_Image" =~ [^a-zA-Z0-9_] ]] ; then
+				echo "The OH name can contain only alphanumeric and underscores"
+				exit 1
+			fi
+			;;
+		n)      L_New_Name=${OPTARG}
+			if [[ "$L_New_Name" =~ [^a-zA-Z0-9_] ]] ; then
+				echo "The OH name can contain only alphanumeric and underscores"
+				exit 1
+			fi
+			;;
+		c)      L_Action=${L_Action:-create}
+			;;
+		g)      L_For_Grid="Y"
+			;;
+		d)      L_Golden_Image=${OPTARG}
+			L_Action=${L_Action:-remove}
+			;;
+		f)      L_GI_Overwrite=yes
+			;;
+		r)      L_Link_RAC=yes
+			;;
+		S)      L_Link_RAC=no
+			;;
+		m)      L_Message=${OPTARG}
+			;;
+		h)      F_usage
+			exit 1
+			;;
+		?)      F_usage
+			exit 1
+			;;
+	esac
+done
+
+L_Action=${L_Action:-list}
+
+if [ "$L_For_Grid" == "Y" ] ; then
+	#Switch all actions to the grid version
+	L_Action="g$L_Action"
+fi
+
+if [ $L_Action == "list" ] ; then
+	F_list_OH
+fi
+
+if [ $L_Action == "glist" ] ; then
+	F_list_GOH
+fi
+
+if [ $L_Action == "install" ] ; then
+
+	# if no new OH name specified, get the golden image name
+	L_New_Name=${L_New_Name:-$L_Golden_Image}
+
+	# - check if image to install exists
+	L_Image_Exists=`F_Image_Exists $L_Golden_Image`
+	if [ $? -ne 0 ] ; then
+		echo "The image $L_Golden_Image does not exist"
+		exit 1
+	else
+		echo "The image $L_Golden_Image exists. Continuing."
+		source $L_Image_Exists
+	fi
+
+	# - check if OH name to install is not already installed
+	L_Installed=`F_OH_Install_Check "$L_New_Name"`
+	if [ "$L_Installed" == "Installed" ] ; then
+		echo "The image $L_New_Name is already installed on the local host. The script will exit."
+		# if already exists, exit 0 as it is supposed to be OK.
+		exit 0
+	fi
+
+	# - check if the destination directory exist
+	L_Install_Path="${G_DB_Install_Base}/$L_New_Name"
+	if [ -d $L_Install_Path ] ; then
+		echo "The installation directory $L_Install_Path already exist. The script will exit."
+		exit 1
+	fi
+
+	# - create dest directory
+	mkdir -p $L_Install_Path
+	if [ $? -ne 0 ] ; then
+		echo "Cannot create installation directory $L_Install_Path. The script will exit."
+		exit 1
+	fi
+
+	L_Image_File=${L_Golden_Image}.zip
+
+	# - check if the zip exists
+	if [ -f $G_Image_Path/$L_Image_File ] ; then
+		echo "Downloaded image file exists."
+	else
+		echo "The image Zip file $L_Image_File does NOT exist. The script will exit."
+		exit 1
+	fi
+
+
+	# - unzip the image from the zip
+	echo "Unzipping the image $G_Image_Path/$L_Image_File into $L_Install_Path. This may take a few minutes."
+	unzip -q -d $L_Install_Path $G_Image_Path/$L_Image_File
+	if [ $? -ne 0 ] ; then
+		echo "The unzip failed. The script will exit."
+		exit 1
+	else
+		echo "The unzip completed successfully. Running the AttachHome now."
+	fi
+
+	# Getting eventual clusterware OSGROUPS
+	# explanation: we force the groups to have the same values as the clusterware (no group separation)
+	# we have experienced problems when cloning: clone.pl might assign "oper" to OSOPER by default
+	# when this group does not exist, the srvctl add fails and the home must be relinked after changing the oper group.
+	# by using the same groups as the clusterware it should be OK (quite CERN specific, I guess).
+	if [ $CRS_EXISTS -eq 1 ] && [ -d $ORA_CLU_HOME ] ; then
+		echo "Clusterware exists, getting OSgrps"
+		L_clu_version=`F_oraversion $ORA_CLU_HOME`
+		L_osdba=`$ORA_CLU_HOME/bin/osdbagrp -d 2>/dev/null `
+		L_osoper=`$ORA_CLU_HOME/bin/osdbagrp -o 2>/dev/null `
+		L_osasm=`$ORA_CLU_HOME/bin/osdbagrp -a 2>/dev/null `
+		L_osbkp=`$ORA_CLU_HOME/bin/osdbagrp -b 2>/dev/null `
+		L_osdgd=`$ORA_CLU_HOME/bin/osdbagrp -g 2>/dev/null `
+		L_oskmt=`$ORA_CLU_HOME/bin/osdbagrp -k 2>/dev/null `
+		L_osrac=`$ORA_CLU_HOME/bin/osdbagrp -r 2>/dev/null `
+		case $L_ora_major in
+			11)
+				L_OSGRP_STRING="${L_osdba:+oracle_install_OSDBA=$L_osdba}  ${L_osoper:+oracle_install_OSOPER=$L_osoper} ${L_osasm:+oracle_install_OSASM=$L_osasm}"
+			;;
+			12)
+				L_OSGRP_STRING="${L_osdba:+oracle_install_OSDBA=$L_osdba}  ${L_osoper:+oracle_install_OSOPER=$L_osoper} ${L_osasm:+oracle_install_OSASM=$L_osasm} ${L_osbkp:+oracle_install_OSBKP=$L_osbkp} ${L_osdgd:+oracle_install_OSDGD=$L_osdgd} ${L_oskmt:+oracle_install_OSKMT=$L_oskmt}"
+			;;
+			*)
+				L_OSGRP_STRING="${L_osdba:+oracle_install_OSDBA=$L_osdba}  ${L_osoper:+oracle_install_OSOPER=$L_osoper} ${L_osasm:+oracle_install_OSASM=$L_osasm} ${L_osbkp:+oracle_install_OSBKP=$L_osbkp} ${L_osdgd:+oracle_install_OSDGD=$L_osdgd} ${L_oskmt:+oracle_install_OSKMT=$L_oskmt} ${L_osrac:+oracle_install_OSRAC=$L_osrac}"
+			;;
+		esac
+	fi
+	# - clone the home with newname
+	export ORACLE_HOME=$L_Install_Path
+	L_ora_version=`F_oraversion $L_Install_Path`
+	L_ora_major=`echo $L_ora_version |  cut -d . -f 1`;
+
+	if [ ! -f $ORACLE_HOME/runInstaller ] ; then
+
+		# before 19c, we use the clone command to attach the home
+		RUNINST=$ORACLE_HOME/oui/bin/runInstaller
+			L_Clone_Command="$RUNINST -clone -waitForCompletion -ignoreSysPrereqs -silent ORACLE_HOME=$ORACLE_HOME ORACLE_BASE=$ORACLE_BASE ORACLE_HOME_NAME=$L_New_Name $L_OSGRP_STRING"
+	else
+		# since 19c, the only way is to install SWONLY
+		RUNINST=$ORACLE_HOME/runInstaller
+		# first, prepare the response file
+		cat <<EOF > $ORACLE_HOME/$L_New_Name.rsp
+oracle.install.responseFileVersion=/oracle/install/rspfmt_dbinstall_response_schema_v${L_ora_major}.0.0
+oracle.install.option=INSTALL_DB_SWONLY
+UNIX_GROUP_NAME=$L_osdba
+INVENTORY_LOCATION=
+ORACLE_HOME=$ORACLE_HOME
+ORACLE_BASE=$ORACLE_BASE
+oracle.install.db.InstallEdition=EE
+oracle.install.db.OSDBA_GROUP=${L_osdba:-dba}
+oracle.install.db.OSOPER_GROUP=${L_osoper:-dba}
+oracle.install.db.OSBACKUPDBA_GROUP=${L_osbkp:-dba}
+oracle.install.db.OSDGDBA_GROUP=${L_osdgd:-dba}
+oracle.install.db.OSKMDBA_GROUP=${L_oskmt:-dba}
+oracle.install.db.OSRACDBA_GROUP=${L_osrac:-dba}
+EOF
+		L_Clone_Command="$RUNINST -waitForCompletion -silent -responseFile $ORACLE_HOME/$L_New_Name.rsp ORACLE_HOME_NAME=$L_New_Name"
+	fi
+
+	echo $L_Clone_Command
+	$L_Clone_Command
+
+	if [ $? -eq 0 ] ; then
+		echo -e "${colgrn}Clone command completed successfully.${colrst}"
+		echo
+	else
+		echo -e "${colred}There was a problem during the clone command. The script will exit.${colrst}"
+		echo
+		exit 1
+	fi
+
+	L_Component=`F_OH_Component $ORACLE_HOME`
+	L_Version=`F_OH_Version $ORACLE_HOME`
+	L_ORAMAJOR=`echo $L_Version |  cut -d . -f 1`
+
+
+
+	if [ $L_Component == "oracle.server" ] ; then
+		# only if RDBMS, we relink with dnfs, eventually rac, and create tns symlinks. otherwise, probably a client
+		if [ "${L_Link_RAC}" == "notset" ] && [ $CRS_EXISTS -eq 1 ] ; then
+			echo "Clusterware detected, linking with rac_on by default"
+			L_Link_RAC=yes
+		fi
+		pushd $ORACLE_HOME/rdbms/lib
+		if [ "${L_Link_RAC}" == "yes" ] ; then
+			make -f ins_rdbms.mk rac_on
+		else
+			make -f ins_rdbms.mk rac_off
+			# disregarding of rac, we enable dnfs at CERN :-)
+		fi
+		if [ $L_ORAMAJOR -ge 12 ] ; then
+			# relink dith unified auditing on if version is at least 12
+			make -f ins_rdbms.mk uniaud_on
+		fi
+		make -f ins_rdbms.mk dnfs_on
+		make -f ins_rdbms.mk ioracle
+		popd
+
+		# - run setasmgid
+		if [ -x /etc/oracle/setasmgid ] ; then
+			echo "setasmgid found: running it on Oracle binary"
+			/etc/oracle/setasmgid oracle_binary_path=$ORACLE_HOME/bin/oracle
+		else
+			echo "setasmgid not found: ignoring"
+		fi
+
+		# - create symlinks for ldap, sqlnet and tnsnames.ora
+		TNS_ADMIN=${TNS_ADMIN:-/u01/app/oracle/network/admin}
+		[ -d $TNS_ADMIN ] || mkdir -p $TNS_ADMIN
+		ln -s $TNS_ADMIN/tnsnames.ora $ORACLE_HOME/network/admin/tnsnames.ora
+		ln -s $TNS_ADMIN/sqlnet.ora   $ORACLE_HOME/network/admin/sqlnet.ora
+		ln -s $TNS_ADMIN/ldap.ora     $ORACLE_HOME/network/admin/ldap.ora
+	fi
+
+	# - check if OH name installed exist in the central inventory
+	L_Installed=`F_OH_Install_Check "$L_New_Name"`
+	if [ "$L_Installed" != "Installed" ] ; then
+		echo "The image $L_New_Name has been installed but it is not in the inventory. Please check."
+	else
+		echo "The image $L_New_Name has been installed and exists in the inventory."
+	fi
+
+	# - prompt to run root.sh to the user
+	echo
+	echo -e "${colured}Installation completed. Please run $ORACLE_HOME/root.sh as root before using the new home.${colrst}"
+	echo
+
+
+fi
+
+if [ $L_Action == "ginstall" ] ; then
+
+	# if no new OH name specified, get the golden image name
+	L_New_Name=${L_New_Name:-$L_Golden_Image}
+
+	# - check if image to install exists
+	L_Image_Exists=`F_Grid_Image_Exists $L_Golden_Image`
+	if [ $? -ne 0 ] ; then
+		echo "The image $L_Golden_Image does not exist"
+		exit 1
+	else
+		echo "The image $L_Golden_Image exists. Continuing."
+		eval $L_Image_Exists
+	fi
+
+	# - check if OH name to install is not already installed
+	L_Installed=`F_OH_Install_Check "$L_New_Name"`
+	if [ "$L_Installed" == "Installed" ] ; then
+		echo "The image $L_New_Name is already installed on the local host. The script will exit."
+		# if already exists, exit 0 as it is supposed to be OK.
+		exit 0
+	fi
+
+	# The destination path must exist and must be empty
+	L_Install_Path="${G_Grid_Install_Base}/$L_New_Name"
+	if [ -d $L_Install_Path ] ; then
+		echo "The installation directory $L_Install_Path exists."
+		if [ -z "$(ls -A $L_Install_Path)" ] ; then
+			echo "The installation directory $L_Install_Path is empty, OK."
+		else
+			echo "The installation directory $L_Install_Path is not empty, please check"
+			exit 1
+		fi
+		
+	else
+		echo "The installation directory $L_Install_Path does not exist. Please create it with root and assign oracle ownership:"
+		echo " # mkdir -p $L_Install_Path  && chown oracle:ci $L_Install_Path"
+		exit 1
+	fi
+
+
+	L_Image_File=${L_Golden_Image}.zip
+
+	# - check if the zip exists
+	if [ -f $G_Image_Path/$L_Image_File ] ; then
+		echo "Downloaded image file exists."
+	else
+		echo "The image Zip file $L_Image_File does NOT exist. The script will exit."
+		exit 1
+	fi
+
+
+	# - unzip the image from the zip
+	echo "Unzipping the image $G_Image_Path/$L_Image_File into $L_Install_Path. This may take a few minutes."
+	unzip -q -d $L_Install_Path $G_Image_Path/$L_Image_File
+	if [ $? -ne 0 ] ; then
+		echo "The unzip failed. The script will exit."
+		exit 1
+	else
+		echo "The unzip completed successfully. Running the AttachHome now."
+	fi
+
+	# Getting eventual clusterware OSGROUPS
+	# explanation: we force the groups to have the same values as the clusterware (no group separation)
+	# we have experienced problems when cloning: clone.pl might assign "oper" to OSOPER by default
+	# when this group does not exist, the srvctl add fails and the home must be relinked after changing the oper group.
+	# by using the same groups as the clusterware it should be OK (quite CERN specific, I guess).
+	if [ $CRS_EXISTS -eq 1 ] && [ -d $ORA_CLU_HOME ] ; then
+		echo "Clusterware exists, getting OSgrps"
+		L_clu_version=`F_oraversion $ORA_CLU_HOME`
+		L_osdba=`$ORA_CLU_HOME/bin/osdbagrp -d 2>/dev/null `
+		L_osoper=`$ORA_CLU_HOME/bin/osdbagrp -o 2>/dev/null `
+		L_osasm=`$ORA_CLU_HOME/bin/osdbagrp -a 2>/dev/null `
+		L_ora_version=`F_oraversion $L_Install_Path`
+		L_ora_major=`echo $L_ora_version |  cut -d . -f 1`;
+	fi
+	# - clone the home with newname
+	export ORACLE_HOME=$L_Install_Path
+	GRIDSETUP=$ORACLE_HOME/gridSetup.sh
+
+	TMPRSP=/tmp/responsefile.$$.rsp
+	
+	[ -f $TMPRSP ] && rm $TMPRSP
+	cat <<EOF > $TMPRSP
+oracle.install.responseFileVersion=/oracle/install/rspfmt_crsinstall_response_schema_v18.0.0
+INVENTORY_LOCATION=/ORA/dbs01/oracle/oraInventory
+oracle.install.option=CRS_SWONLY
+ORACLE_BASE=/ORA/dbs01/oracle
+oracle.install.asm.OSDBA=${L_osdba:-dba}
+oracle.install.asm.OSOPER=${L_osoper:-dba}
+oracle.install.asm.OSASM=${L_osasm:-dba}
+EOF
+	L_Clone_Command="$GRIDSETUP -silent -responseFile $TMPRSP ORACLE_HOME_NAME=$L_New_Name"
+
+	echo $L_Clone_Command
+	$L_Clone_Command
+
+	if [ $? -eq 0 ] ; then
+		echo -e "${colgrn}Clone command completed successfully.${colrst}"
+		echo
+	else
+		echo -e "${colred}There was a problem during the clone command. The script will exit.${colrst}"
+		echo
+		exit 1
+	fi
+
+	# It's a Grid Infra, so we relink rac_on always!
+	pushd $ORACLE_HOME/rdbms/lib
+	make -f ins_rdbms.mk rac_on
+	#make -f ins_rdbms.mk dnfs_on
+	make -f ins_rdbms.mk uniaud_on
+	make -f ins_rdbms.mk ioracle
+	popd
+
+	# - run setasmgid
+	if [ -x /etc/oracle/setasmgid ] ; then
+		echo "setasmgid found: running it on Oracle binary"
+		/etc/oracle/setasmgid oracle_binary_path=$ORACLE_HOME/bin/oracle
+	else
+		echo "setasmgid not found: ignoring"
+	fi
+
+	# - check if OH name installed exist in the central inventory
+	L_Installed=`F_OH_Install_Check "$L_New_Name"`
+	if [ "$L_Installed" != "Installed" ] ; then
+		echo "The image $L_New_Name has been installed but it is not in the inventory. Please check."
+	else
+		echo "The image $L_New_Name has been installed and exists in the inventory."
+	fi
+
+	# create tnsnames.ora with remote_listener and local_listener
+	if [ -x /u01/app/oracle/COE/bin/create_cluster_tns.sh ] ; then
+		/u01/app/oracle/COE/bin/create_cluster_tns.sh
+	fi
+
+
+	# - prompt to run root.sh to the user
+	echo
+	echo -e "${colured}Installation completed. Please run $ORACLE_HOME/root.sh as root before using the new home.${colrst}"
+
+	echo
+
+
+fi
+
+if [ $L_Action == "create" ] ; then
+	# check that a Oracle Home is set
+	if [ -z "ORACLE_HOME" ] ; then
+		echo "ORACLE_HOME not set"
+		exit 1
+	fi
+	L_Component=`F_OH_Component $ORACLE_HOME`
+	case $L_Component in
+		"oracle.server")
+			L_OH_Type="RDBMS"
+			;;
+		"oracle.client")
+			L_OH_Type="CLIENT"
+			;;
+		*)
+			echo "Please set a database ORACLE_HOME to create the Golden Image"
+			exit 1
+			;;
+	esac
+	if [ "a$G_ORAVERSION" == "a" ] ; then
+		setohenv
+	fi
+
+	# if no new OH name specified, get the basename
+	L_OH_Basename=`basename $ORACLE_HOME`
+	L_New_Name=${L_New_Name:-$L_OH_Basename}
+
+	# if golden image already exist, force is required
+	RESULT=`F_Image_Exists $L_New_Name`
+	if [ $? -eq 0 ] ; then
+		if [ "$L_GI_Overwrite" != "yes" ] ; then
+			echo "Image $L_New_Name already exists but -f not specified. Exiting."
+			exit 1
+		else
+			echo "Image $L_New_Name already exists but -f specified. The script will continue."
+		fi
+	fi
+
+	echo
+	echo
+	echo "Creating the new Golden Image $L_New_Name"
+	echo
+
+
+	# Copy to working copy
+	echo "Cleaning previous working copy"
+	WC=$G_Work_Dir/$L_New_Name
+	[ -d $WC ] && rm -rf $WC
+
+	echo "Copying the OH to the working copy"
+	mkdir -p  $WC
+	cp -rpf $ORACLE_HOME/. $WC/ 2>/tmp/ohctl.err
+
+	# Cleanup files
+	echo "Cleansing files in Working Copy"
+	rm -rf $WC/log/$HOSTNAME
+	rm -rf $WC/log/diag/rdbms/*
+	rm -rf $WC/gpnp/$HOSTNAME
+	find $WC/gpnp -type f -exec rm {} \; 2>/dev/null
+	rm -rf $WC/cfgtoollogs/*
+	rm -rf $WC/crs/init/*
+	rm -rf $WC/cdata/*
+	rm -rf $WC/crf/*
+	rm -rf $WC/admin/*
+	rm -rf $WC/network/admin/*.ora
+	rm -rf $WC/crs/install/crsconfig_params
+	find $WC -name '*.ouibak' -exec rm {} \; 2>/dev/null
+	find $WC -name '*.ouibak.1' -exec rm {} \; 2>/dev/null
+	# rm -rf $WC/root.sh
+	find $WC/rdbms/audit -name '*.aud' -exec rm {} \; 2>/dev/null
+	rm -rf $WC/rdbms/log/*
+	rm -rf $WC/inventory/backup/*
+	rm -rf $WC/dbs/*
+
+	# create zip
+	echo "Creating the Golden Image zip file"
+	[ -d $G_Image_Path ] || mkdir -p $G_Image_Path
+	[ -f $G_Image_Path/$L_New_Name.zip ] && rm $G_Image_Path/$L_New_Name.zip
+	pushd $WC
+	zip -r $G_Image_Path/$L_New_Name.zip . >/dev/null
+	popd
+
+	L_metafile=$G_Image_Path/$L_New_Name.meta
+
+	cat > $L_metafile <<EOF
+L_GI_Version=$G_ORAVERSION
+L_GI_Description="$L_Message"
+# GI_Type can be DB or CRS. Use DB for CMAN and Client as well, the procedure does not change"
+L_GI_Type=$L_OH_Type
+EOF
+
+
+fi
+
+if [ $L_Action == "gcreate" ] ; then
+	# check that a Oracle Home is set
+	if [ -z "ORACLE_HOME" ] ; then
+		echo "ORACLE_HOME not set"
+		exit 1
+	fi
+	L_Component=`F_OH_Component $ORACLE_HOME`
+	if [ "$L_Component" != "oracle.crs" ] ; then
+		echo "-g specified. Please set a Grid Infrastructure ORACLE_HOME to create the Golden Image"
+		exit 1
+	fi
+	if [ "a$G_ORAVERSION" == "a" ] ; then
+		setohenv
+	fi
+
+	# if no new OH name specified, get the basename
+	L_OH_Basename=`basename $ORACLE_HOME`
+	L_New_Name=${L_New_Name:-$L_OH_Basename}
+
+	# if golden image already exist, force is required
+	RESULT=`F_Grid_Image_Exists $L_New_Name`
+	if [ $? -eq 0 ] ; then
+		if [ "$L_GI_Overwrite" != "yes" ] ; then
+			echo "Image $L_New_Name already exists but -f not specified. Exiting."
+			exit 1
+		else
+			echo "Image $L_New_Name already exists but -f specified. The script will continue."
+		fi
+	fi
+
+	echo
+	echo
+	echo "Creating the new Grid Infrastructure Golden Image $L_New_Name"
+	echo
+
+
+	# Copy to NFS working copy
+	echo "Cleaning previous working copy"
+	WC=$G_Work_Dir/$L_New_Name
+	[ -d $WC ] && rm -rf $WC
+
+	echo "Copying the OH to the working copy"
+	mkdir -p  $WC
+	cp -rpf $ORACLE_HOME/. $WC/ 2>/tmp/ohctl.err
+
+	# Cleanup files
+	echo "Cleansing files in Working Copy"
+	# Preparing the Oracle Grid Infrastructure Home for Cloning / Create a Copy of the Oracle Grid Infrastructure Home
+	# https://docs.oracle.com/en/database/oracle/oracle-database/18/cwadd/cloning-oracle-clusterware.html#GUID-2BED2A9B-0D67-4D18-867D-0E33EC42FB1B
+	rm -rf $WC/log/$HOSTNAME
+	rm -rf $WC/log/diag/rdbms/*
+	rm -rf $WC/gpnp/$HOSTNAME
+	find $WC/gpnp -type f -exec rm {} \; 2>/dev/null
+	rm -rf $WC/cfgtoollogs/*
+	rm -rf $WC/crs/init/*
+	rm -rf $WC/cdata/*
+	rm -rf $WC/crf/*
+	rm -rf $WC/admin/*
+	rm -rf $WC/network/admin/*.ora
+	rm -rf $WC/crs/install/crsconfig_params
+	rm -rf $WC/crs/install/crsgenconfig_params
+	find $WC -name '*.ouibak' -exec rm {} \; 2>/dev/null
+	find $WC -name '*.ouibak.1' -exec rm {} \; 2>/dev/null
+	# rm -rf $WC/root.sh
+	find $WC/rdbms/audit -name '*.aud' -exec rm {} \; 2>/dev/null
+	rm -rf $WC/root.sh*
+	rm -rf $WC/bin/clsecho/*
+	rm -rf $WC/rdbms/log/*
+	rm -rf $WC/inventory/backup/*
+	rm -rf $WC/dbs/*
+
+	# create zip
+	echo "Creating the Golden Image zip file"
+	[ -d $G_Image_Path ] || mkdir -p $G_Image_Path
+	[ -f $G_Image_Path/$L_New_Name.zip ] && rm $G_Image_Path/$L_New_Name.zip
+	pushd $WC
+	zip -r $G_Image_Path/$L_New_Name.zip . >/dev/null
+	popd
+
+	L_metafile=$G_Image_Path/$L_New_Name.meta
+
+	cat > $L_metafile <<EOF
+L_GI_Version=$G_ORAVERSION
+L_GI_Description="$L_Message"
+# GI_Type can be DB or CRS. Use DB for CMAN and Client as well, the procedure does not change"
+L_GI_Type=$L_OH_Type
+EOF
+
+fi
