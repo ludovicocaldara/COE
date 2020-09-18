@@ -6,9 +6,10 @@
 # Download the Oacle binaries 19c or later in that folder and rename the zip file to something meaningful (e.g. db_19_3_0.zip)
 # The Home name AND the directory name will match the name of the zip file.
 
+ORACLE_BASE=${ORACLE_BASE:-/u01/app/oracle}
 G_Image_Path=/media/sw/images
-G_Work_Dir=/u01/app/oracle/stage/work_dir
-G_DB_Install_Base=/u01/app/oracle/product
+G_Work_Dir=${ORACLE_BASE}/stage/work_dir
+G_DB_Install_Base=${ORACLE_BASE}/product
 G_Grid_Install_Base=/u01/app/grid
 
 F_usage() {
@@ -397,7 +398,7 @@ EOF
 		fi
 
 		# - create symlinks for ldap, sqlnet and tnsnames.ora
-		TNS_ADMIN=${TNS_ADMIN:-/u01/app/oracle/network/admin}
+		TNS_ADMIN=${TNS_ADMIN:-${ORACLE_BASE}/network/admin}
 		[ -d $TNS_ADMIN ] || mkdir -p $TNS_ADMIN
 		ln -s $TNS_ADMIN/tnsnames.ora $ORACLE_HOME/network/admin/tnsnames.ora
 		ln -s $TNS_ADMIN/sqlnet.ora   $ORACLE_HOME/network/admin/sqlnet.ora
@@ -551,8 +552,8 @@ EOF
 	fi
 
 	# create tnsnames.ora with remote_listener and local_listener
-	if [ -x /u01/app/oracle/COE/bin/create_cluster_tns.sh ] ; then
-		/u01/app/oracle/COE/bin/create_cluster_tns.sh
+	if [ -x ${ORACLE_BASE}/COE/bin/create_cluster_tns.sh ] ; then
+		${ORACLE_BASE}/COE/bin/create_cluster_tns.sh
 	fi
 
 

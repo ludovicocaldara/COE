@@ -1,5 +1,5 @@
 # as root
-L_orainv=/ORA/dbs01/oracle/oraInventory
+L_orainv=${ORACLE_BASE:-/u01/app/oracle}/oraInventory
 if [ ! -f /etc/oraInst.loc ] ; then
 	cat <<EOF > /etc/oraInst.loc
 inventory_loc=$L_orainv

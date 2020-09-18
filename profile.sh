@@ -17,7 +17,7 @@ if [ -f ${COE_ETC}/variables.conf ] ; then
 		if [ $CRS_EXISTS -eq 1 ] ; then
 			dbrac GRID > /dev/null
 		else
-			export ORACLE_BASE=/u01/app/oracle
+			export ORACLE_BASE=${ORACLE_BASE:-/u01/app/oracle}
 			export PATH=$DEFAULT_PATH
 		fi
 	else
