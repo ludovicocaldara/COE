@@ -1,5 +1,5 @@
 # COE
-Common Oracle Environment for Linux
+Common Oracle Environment for Linux and Solaris
 
 ### Installation instructions for the Oracle Cloud Infrastructure
 ```
@@ -16,7 +16,7 @@ echo ". ~/COE/profile.sh" >> $HOME/.bash_profile
 . ~/.bash_profile
 ```
 
-### (optional) Installing git and rlwrap
+### (optional) Installing git and rlwrap on Linux
 ```
 #### IF USING RH6/OL6 (OL6 is the old VM provided as DBaaS in Oracle Cloud)
 # install EPEL repo for rlwrap 
@@ -44,6 +44,17 @@ sudo yum install -y rlwrap git
 ```
 Depending on your VM version, you might encounter problems installing rlwrap. Please let me know if you find a one-command-fits all.
 
+### (optional) Installing git and rlwrap on Oracle Solaris 11
+```
+#### install pkgutil
+# pkgadd -d http://get.opencsw.org/now CSWpkgutil
+#### update repository
+# /opt/csw/bin/pkgutil -U
+####  install rlwrap + dependencies
+# /opt/csw/bin/pkgutil -y -i rlwrap
+
+### utilities are installed to /opt/csw/bin. This path is added to PATH in variables.conf
+```
 
 ## Some examples of the environment:
 ```
