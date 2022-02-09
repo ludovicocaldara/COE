@@ -17,19 +17,23 @@ echo ". ~/COE/profile.sh" >> $HOME/.bash_profile
 ```
 
 ### (optional) Installing git and rlwrap on Linux
+For RH6/OL6:
 ```
-#### IF USING RH6/OL6 (OL6 is the old VM provided as DBaaS in Oracle Cloud)
 # install EPEL repo for rlwrap 
 sudo yum install yum install https://dl.fedoraproject.org/pub/epel/epel-release-latest-6.noarch.rpm
 # Enable the Public Yum repository for git install)
 cd /etc/yum.repos.d
 sudo wget http://yum.oracle.com/public-yum-ol6.repo
 
-#### IF USING RH7/OL7
+sudo yum install -y rlwrap git
+```
+
+For RH7/OL7:
+```
 # for OL7, enable the [ol7_developer_EPEL] repo in /etc/yum.repos.d/public-yum-ol7.repo
 # Compute instances in 7.6 are already OK, you might need to add it for DBaaS servers
 # If missing, this should work:
-cat > /etc/yum.repos.d/ol7.epel.repo <<EOF
+sudo tee /etc/yum.repos.d/ol7.epel.repo <<EOF
 [ol7_epel]
 name=Oracle Linux $releasever Latest ($basearch)
 baseurl=https://yum.oracle.com/repo/OracleLinux/OL7/developer_EPEL/\$basearch/
@@ -38,10 +42,23 @@ gpgcheck=1
 enabled=1
 EOF
 
-
 sudo yum install -y rlwrap git
-
 ```
+
+For RH8/OL8:
+```
+sudo tee /etc/yum.repos.d/ol8-epel.repo <<EOF
+[ol8_developer_EPEL]
+name= Oracle Linux \$releasever EPEL (\$basearch)
+baseurl=https://yum.oracle.com/repo/OracleLinux/OL8/developer/EPEL/\$basearch/
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-oracle
+gpgcheck=1
+enabled=1
+EOF
+
+sudo dnf install -y rlwrap git
+```
+
 Depending on your VM version, you might encounter problems installing rlwrap. Please let me know if you find a one-command-fits all.
 
 ### (optional) Installing git and rlwrap on Oracle Solaris 11
