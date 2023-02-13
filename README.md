@@ -35,8 +35,40 @@ For RH7/OL7:
 # If missing, this should work:
 sudo tee /etc/yum.repos.d/ol7.epel.repo <<EOF
 [ol7_epel]
-name=Oracle Linux $releasever Latest ($basearch)
+name=Oracle Linux $releasever Latest (\$basearch)
 baseurl=https://yum.oracle.com/repo/OracleLinux/OL7/developer_EPEL/\$basearch/
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-oracle
+gpgcheck=1
+enabled=1
+EOF
+
+# In recent BaseDB instances, also standard repositories must be added:
+sudo tee /etc/yum.repos.d/ol7.repo <<EOF
+[ol7_UEKR4]
+name=Latest Unbreakable Enterprise Kernel Release 4 for Oracle Linux $releasever (\$basearch)
+baseurl=http://yum.oracle.com/repo/OracleLinux/OL7/UEKR4/\$basearch/
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-oracle
+gpgcheck=1
+enabled=1
+
+[ol7_UEKR4_archive]
+name=Unbreakable Enterprise Kernel Release 4 for Oracle Linux $releasever (\$basearch) - Archive
+baseurl=http://yum.oracle.com/repo/OracleLinux/OL7/UEKR4/archive/\$basearch/
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-oracle
+gpgcheck=1
+enabled=1
+
+
+[ol7_latest]
+name=Oracle Linux $releasever Latest (\$basearch)
+baseurl=http://yum.oracle.com/repo/OracleLinux/OL7/latest/\$basearch/
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-oracle
+gpgcheck=1
+enabled=1
+
+[ol7_latest_archive]
+name=Oracle Linux $releasever Latest (\$basearch) - Archive
+baseurl=http://yum.oracle.com/repo/OracleLinux/OL7/latest/archive/\$basearch/
 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-oracle
 gpgcheck=1
 enabled=1
@@ -55,6 +87,32 @@ gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-oracle
 gpgcheck=1
 enabled=1
 EOF
+
+
+# In recent BaseDB instances, also standard repositories must be added:
+sudo tee /etc/yum.repos.d/ol8.repo <<EOF
+[ol8_UEKR7]
+name=Latest Unbreakable Enterprise Kernel Release 7 for Oracle Linux $releasever (\$basearch)
+baseurl=http://yum-lhr.oracle.com/repo/OracleLinux/OL8/UEKR7/\$basearch/
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-oracle
+gpgcheck=1
+enabled=1
+
+[ol8_latest]
+name=Oracle Linux $releasever Latest (\$basearch)
+baseurl=http://yum-lhr.oracle.com/repo/OracleLinux/OL8/baseos/latest/\$basearch/
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-oracle
+gpgcheck=1
+enabled=1
+
+[ol8_appstream]
+name=Oracle Linux $releasever Appstream (\$basearch)
+baseurl=http://yum-lhr.oracle.com/repo/OracleLinux/OL8/appstream/\$basearch/
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-oracle
+gpgcheck=1
+enabled=1
+EOF
+
 
 sudo dnf install -y rlwrap git
 ```
